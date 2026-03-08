@@ -3,14 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    
+    <!-- ===== CACHE-BUSTING META TAGS ===== -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
     <title>NEBULA · Dashboard by DECS</title>
+    
     <!-- Font & Icons -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -47,10 +56,13 @@
             opacity: 0;
             transition: opacity 0.3s;
             backdrop-filter: blur(10px);
+            touch-action: none;
+            -webkit-overflow-scrolling: none;
         }
         .glitch-active {
             opacity: 1 !important;
             pointer-events: all !important;
+            touch-action: none !important;
         }
         .glitch-message {
             font-size: 3rem;
@@ -734,16 +746,29 @@
 </div>
 
 <script>
+    // ===== CACHE-BUSTING VERSION =====
+    const APP_VERSION = '2.0.0'; // Update this when you make changes
+    const BUILD_TIME = '2024-03-08-12-00'; // Update this timestamp when deploying
+
     // ===== GLITCH SYSTEM FOR FAILED LOGINS =====
     const glitchOverlay = document.getElementById('glitch-overlay');
     const glitchMessage = document.getElementById('glitch-message');
     let failCount = 0;
+    let glitchTimeout;
 
     function showGlitch(message) {
+        if (glitchTimeout) {
+            clearTimeout(glitchTimeout);
+        }
+        
         glitchMessage.innerHTML = message;
         glitchOverlay.classList.add('glitch-active');
         
-        // Make the whole screen glitch with CSS filter
+        const originalBodyOverflow = document.body.style.overflow;
+        const originalBodyFilter = document.body.style.filter;
+        const originalDashboardTransform = document.querySelector('.dashboard').style.transform;
+        
+        document.body.style.overflow = 'hidden';
         document.body.style.filter = 'hue-rotate(90deg) blur(2px)';
         document.querySelector('.dashboard').style.transform = 'skew(5deg) scale(1.02)';
         
@@ -760,9 +785,13 @@
             document.querySelector('.dashboard').style.transform = 'none';
         }, 300);
         
-        // Hide after 2 seconds
-        setTimeout(() => {
+        glitchTimeout = setTimeout(() => {
             glitchOverlay.classList.remove('glitch-active');
+            document.body.style.filter = '';
+            document.body.style.overflow = '';
+            document.querySelector('.dashboard').style.transform = '';
+            void document.body.offsetHeight;
+            glitchTimeout = null;
         }, 2000);
     }
 
@@ -828,10 +857,14 @@
 
     // ===== MAIN APP =====
     (function() {
-        const STORAGE_KEY = 'nebulaDynamicStudentsV2';
+        // ===== ENHANCED STORAGE KEY WITH VERSION =====
+        const STORAGE_KEY = `nebulaDynamicStudents_${APP_VERSION}`;
+        const LEGACY_STORAGE_KEY = 'nebulaDynamicStudentsV2';
 
         // ----- 7 students from the image (first names only) -----
         let defaultData = {
+            version: APP_VERSION,
+            lastUpdated: BUILD_TIME,
             students: {
                 Aryan:   { att:9, as:18, part:8, disc:9, proj:38, accuracy:92, streak:5, img: '', weeks:[18,32,55,82] },
                 Ayush:   { att:8, as:17, part:9, disc:8, proj:35, accuracy:88, streak:4, img: '', weeks:[16,30,48,74] },
@@ -845,15 +878,49 @@
         };
 
         function loadData() {
+            // Try to load from versioned key first
             let saved = localStorage.getItem(STORAGE_KEY);
+            
             if (saved) {
-                try { return JSON.parse(saved); } catch(e){ return defaultData; }
+                try { 
+                    const data = JSON.parse(saved);
+                    // Ensure data structure is valid
+                    if (data && data.students) {
+                        return data;
+                    }
+                } catch(e){ 
+                    // If corrupted, try legacy
+                }
             }
+            
+            // Try legacy storage
+            saved = localStorage.getItem(LEGACY_STORAGE_KEY);
+            if (saved) {
+                try { 
+                    const legacyData = JSON.parse(saved);
+                    // Migrate legacy data to new format
+                    if (legacyData && legacyData.students) {
+                        const migratedData = {
+                            version: APP_VERSION,
+                            lastUpdated: BUILD_TIME,
+                            students: legacyData.students,
+                            currentView: legacyData.currentView || 'Aryan'
+                        };
+                        // Save to new key
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedData));
+                        return migratedData;
+                    }
+                } catch(e){ 
+                    return defaultData; 
+                }
+            }
+            
             return defaultData;
         }
 
         let state = loadData();
 
+        // Ensure all students have required fields
         for (let name in state.students) {
             let s = state.students[name];
             if (s.att === undefined) s.att = 5;
@@ -1048,6 +1115,9 @@
 
         function saveAndRefresh() {
             collectStateFromInputs();
+            // Add version info when saving
+            state.version = APP_VERSION;
+            state.lastUpdated = new Date().toISOString();
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             renderAdminCards();
             refreshDashboard();
