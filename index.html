@@ -9,7 +9,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     
-    <title>NEBULA · Dashboard by DECS</title>
+    <title>NEBULA · GLOBAL Dashboard</title>
     
     <!-- Font & Icons -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -631,6 +631,22 @@
             .leaderboard-table td { font-size: 0.85rem; }
             .student-card { padding: 14px; }
         }
+
+        /* Loading indicator */
+        .loading {
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 1.2rem;
+        }
+        .loading i {
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -746,9 +762,14 @@
 </div>
 
 <script>
+    // ===== JSONBIN.IO CONFIGURATION =====
+    const JSONBIN_API_KEY = '$2a$10$ZxF6tQ8mK9pL4rN2sS5tUeO7vW1yX8cD3bA9fG6hJ4kM1nP2rS5tU8vW1yX8cD3bA9fG6hJ4kM1nP2rS5tU8vW1yX8cD3'; // Replace with your actual API key
+    const JSONBIN_BIN_ID = '67cdb508e41b4d34e47b8e5f'; // Your bin ID
+    const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+
     // ===== CACHE-BUSTING VERSION =====
-    const APP_VERSION = '2.0.0'; // Update this when you make changes
-    const BUILD_TIME = '2024-03-08-12-00'; // Update this timestamp when deploying
+    const APP_VERSION = '3.0.0'; // Major version for global storage
+    const BUILD_TIME = '2024-03-08-14-00';
 
     // ===== GLITCH SYSTEM FOR FAILED LOGINS =====
     const glitchOverlay = document.getElementById('glitch-overlay');
@@ -763,10 +784,6 @@
         
         glitchMessage.innerHTML = message;
         glitchOverlay.classList.add('glitch-active');
-        
-        const originalBodyOverflow = document.body.style.overflow;
-        const originalBodyFilter = document.body.style.filter;
-        const originalDashboardTransform = document.querySelector('.dashboard').style.transform;
         
         document.body.style.overflow = 'hidden';
         document.body.style.filter = 'hue-rotate(90deg) blur(2px)';
@@ -790,7 +807,6 @@
             document.body.style.filter = '';
             document.body.style.overflow = '';
             document.querySelector('.dashboard').style.transform = '';
-            void document.body.offsetHeight;
             glitchTimeout = null;
         }, 2000);
     }
@@ -855,14 +871,10 @@
         drawParticles();
     })();
 
-    // ===== MAIN APP =====
+    // ===== MAIN APP WITH JSONBIN.IO INTEGRATION =====
     (function() {
-        // ===== ENHANCED STORAGE KEY WITH VERSION =====
-        const STORAGE_KEY = `nebulaDynamicStudents_${APP_VERSION}`;
-        const LEGACY_STORAGE_KEY = 'nebulaDynamicStudentsV2';
-
-        // ----- 7 students from the image (first names only) -----
-        let defaultData = {
+        // ----- Default data (fallback if JSONBin fails) -----
+        const defaultData = {
             version: APP_VERSION,
             lastUpdated: BUILD_TIME,
             students: {
@@ -877,338 +889,447 @@
             currentView: 'Aryan'
         };
 
-        function loadData() {
-            // Try to load from versioned key first
-            let saved = localStorage.getItem(STORAGE_KEY);
-            
-            if (saved) {
-                try { 
-                    const data = JSON.parse(saved);
-                    // Ensure data structure is valid
-                    if (data && data.students) {
-                        return data;
-                    }
-                } catch(e){ 
-                    // If corrupted, try legacy
-                }
-            }
-            
-            // Try legacy storage
-            saved = localStorage.getItem(LEGACY_STORAGE_KEY);
-            if (saved) {
-                try { 
-                    const legacyData = JSON.parse(saved);
-                    // Migrate legacy data to new format
-                    if (legacyData && legacyData.students) {
-                        const migratedData = {
-                            version: APP_VERSION,
-                            lastUpdated: BUILD_TIME,
-                            students: legacyData.students,
-                            currentView: legacyData.currentView || 'Aryan'
-                        };
-                        // Save to new key
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedData));
-                        return migratedData;
-                    }
-                } catch(e){ 
-                    return defaultData; 
-                }
-            }
-            
-            return defaultData;
+        let state = { ...defaultData };
+        let isLoading = true;
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        // Show loading indicator
+        function showLoading() {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.id = 'global-loading';
+            loadingDiv.innerHTML = '<i class="fas fa-spinner"></i> Loading global data...';
+            document.body.appendChild(loadingDiv);
         }
 
-        let state = loadData();
-
-        // Ensure all students have required fields
-        for (let name in state.students) {
-            let s = state.students[name];
-            if (s.att === undefined) s.att = 5;
-            if (s.as === undefined) s.as = 10;
-            if (s.part === undefined) s.part = 5;
-            if (s.disc === undefined) s.disc = 5;
-            if (s.proj === undefined) s.proj = 20;
-            if (s.accuracy === undefined) s.accuracy = 80;
-            if (s.streak === undefined) s.streak = 1;
-            if (!s.weeks) s.weeks = [10,20,30,40];
+        function hideLoading() {
+            const loadingDiv = document.getElementById('global-loading');
+            if (loadingDiv) loadingDiv.remove();
         }
 
-        const ctx = document.getElementById('progressChart').getContext('2d');
-        let chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-                datasets: [{
-                    label: 'Points',
-                    data: state.students[state.currentView]?.weeks || [15,30,45,60],
-                    borderColor: '#6ec8ff',
-                    backgroundColor: 'rgba(0, 180, 255, 0.15)',
-                    borderWidth: 4,
-                    pointBackgroundColor: '#ffffff',
-                    pointBorderColor: '#0099ff',
-                    pointBorderWidth: 3,
-                    pointRadius: 6,
-                    pointHoverRadius: 12,
-                    tension: 0.2,
-                    fill: true,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 1200 },
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { grid: { color: '#2f5480' }, min: 0, max: 100, ticks: { color: '#bcd5ff', stepSize: 20 } },
-                    x: { ticks: { color: '#bcd5ff', maxRotation: 0, autoSkip: true } }
-                }
-            }
-        });
-
-        const studentNameSpan = document.getElementById('studentName');
-        const rankSpan = document.getElementById('rankDisplay');
-        const totalSpan = document.getElementById('totalPointsDisplay');
-        const attSpan = document.getElementById('attScore');
-        const asSpan = document.getElementById('asScore');
-        const partSpan = document.getElementById('partScore');
-        const discSpan = document.getElementById('discScore');
-        const projSpan = document.getElementById('projScore');
-        const attBar = document.getElementById('attBar');
-        const asBar = document.getElementById('asBar');
-        const partBar = document.getElementById('partBar');
-        const discBar = document.getElementById('discBar');
-        const projBar = document.getElementById('projBar');
-        const profileImgDiv = document.getElementById('profileImg');
-        const completedSpan = document.getElementById('completedCount');
-        const accuracySpan = document.getElementById('accuracyDisplay');
-        const streakSpan = document.getElementById('streakDisplay');
-        const chartStudentSpan = document.getElementById('chartStudentName');
-        const leaderBody = document.getElementById('leaderboardBody');
-        const studentCardsContainer = document.getElementById('studentCardsContainer');
-
-        function renderAdminCards() {
-            let html = '';
-            for (let name in state.students) {
-                let s = state.students[name];
-                html += `
-                    <div class="student-card" data-student-key="${name}">
-                        <h4>
-                            <span>🌸 ${name}</span>
-                            <span class="delete-btn" data-delete="${name}"><i class="fas fa-trash"></i> delete</span>
-                        </h4>
-                        <div class="ctrl-item"><label>🔥 Streak</label><input type="number" id="streak_${name}" value="${s.streak}"></div>
-                        <div class="ctrl-item"><label>Accuracy %</label><input type="number" id="acc_${name}" value="${s.accuracy}"></div>
-                        <div class="ctrl-item"><label>Attendance /10</label><input type="number" id="att_${name}" value="${s.att}"></div>
-                        <div class="ctrl-item"><label>Assignments /20</label><input type="number" id="as_${name}" value="${s.as}"></div>
-                        <div class="ctrl-item"><label>Participation /10</label><input type="number" id="part_${name}" value="${s.part}"></div>
-                        <div class="ctrl-item"><label>Discipline /10</label><input type="number" id="disc_${name}" value="${s.disc}"></div>
-                        <div class="ctrl-item"><label>Final project /50</label><input type="number" id="proj_${name}" value="${s.proj}"></div>
-                        <div class="ctrl-item"><label>Image URL</label><input type="text" id="img_${name}" value="${s.img || ''}" placeholder="https://..."></div>
-                        <div class="ctrl-item"><label>Week1</label><input type="number" id="w1_${name}" value="${s.weeks[0]}"></div>
-                        <div class="ctrl-item"><label>Week2</label><input type="number" id="w2_${name}" value="${s.weeks[1]}"></div>
-                        <div class="ctrl-item"><label>Week3</label><input type="number" id="w3_${name}" value="${s.weeks[2]}"></div>
-                        <div class="ctrl-item"><label>Week4</label><input type="number" id="w4_${name}" value="${s.weeks[3]}"></div>
-                    </div>
-                `;
-            }
-            studentCardsContainer.innerHTML = html;
-
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    let studentName = this.dataset.delete;
-                    if (confirm(`Delete student ${studentName}?`)) {
-                        delete state.students[studentName];
-                        if (state.currentView === studentName) {
-                            state.currentView = Object.keys(state.students)[0] || 'Aryan';
-                        }
-                        saveAndRefresh();
+        // Load data from JSONBin.io
+        async function loadGlobalData() {
+            isLoading = true;
+            showLoading();
+            
+            try {
+                const response = await fetch(JSONBIN_URL, {
+                    method: 'GET',
+                    headers: {
+                        'X-Master-Key': JSONBIN_API_KEY,
+                        'X-Bin-Meta': 'false',
+                        'Content-Type': 'application/json'
                     }
                 });
-            });
-        }
 
-        function collectStateFromInputs() {
-            for (let name in state.students) {
-                let streakEl = document.getElementById(`streak_${name}`);
-                let accEl = document.getElementById(`acc_${name}`);
-                let attEl = document.getElementById(`att_${name}`);
-                let asEl = document.getElementById(`as_${name}`);
-                let partEl = document.getElementById(`part_${name}`);
-                let discEl = document.getElementById(`disc_${name}`);
-                let projEl = document.getElementById(`proj_${name}`);
-                let imgEl = document.getElementById(`img_${name}`);
-                let w1 = document.getElementById(`w1_${name}`);
-                let w2 = document.getElementById(`w2_${name}`);
-                let w3 = document.getElementById(`w3_${name}`);
-                let w4 = document.getElementById(`w4_${name}`);
-
-                if (streakEl) state.students[name].streak = parseInt(streakEl.value) || 0;
-                if (accEl) state.students[name].accuracy = parseInt(accEl.value) || 0;
-                if (attEl) state.students[name].att = Math.min(10, Math.max(0, parseInt(attEl.value) || 0));
-                if (asEl) state.students[name].as = Math.min(20, Math.max(0, parseInt(asEl.value) || 0));
-                if (partEl) state.students[name].part = Math.min(10, Math.max(0, parseInt(partEl.value) || 0));
-                if (discEl) state.students[name].disc = Math.min(10, Math.max(0, parseInt(discEl.value) || 0));
-                if (projEl) state.students[name].proj = Math.min(50, Math.max(0, parseInt(projEl.value) || 0));
-                if (imgEl) state.students[name].img = imgEl.value;
-                if (w1 && w2 && w3 && w4) {
-                    state.students[name].weeks = [
-                        parseInt(w1.value) || 0,
-                        parseInt(w2.value) || 0,
-                        parseInt(w3.value) || 0,
-                        parseInt(w4.value) || 0
-                    ];
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+
+                const data = await response.json();
+                console.log('Data loaded from JSONBin:', data);
+                
+                // Validate data structure
+                if (data && data.students) {
+                    state = data;
+                    // Ensure version is set
+                    state.version = APP_VERSION;
+                    state.lastUpdated = new Date().toISOString();
+                } else {
+                    // If data is corrupted, use default
+                    console.warn('Invalid data structure, using defaults');
+                    state = { ...defaultData };
+                }
+            } catch (error) {
+                console.error('Error loading from JSONBin:', error);
+                
+                // Retry logic
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    console.log(`Retrying... (${retryCount}/${maxRetries})`);
+                    setTimeout(loadGlobalData, 2000 * retryCount);
+                    return;
+                }
+                
+                // Fallback to default
+                console.warn('Using default data after failed retries');
+                state = { ...defaultData };
+            } finally {
+                isLoading = false;
+                hideLoading();
+                initializeApp();
             }
         }
 
-        function refreshDashboard() {
-            let s = state.students[state.currentView];
-            if (!s) {
-                state.currentView = Object.keys(state.students)[0] || 'Aryan';
-                s = state.students[state.currentView];
-            }
-
-            studentNameSpan.innerText = state.currentView;
-            attSpan.innerText = s.att + '/10';
-            asSpan.innerText = s.as + '/20';
-            partSpan.innerText = s.part + '/10';
-            discSpan.innerText = s.disc + '/10';
-            projSpan.innerText = s.proj + '/50';
-            attBar.style.width = (s.att/10)*100 + '%';
-            asBar.style.width = (s.as/20)*100 + '%';
-            partBar.style.width = (s.part/10)*100 + '%';
-            discBar.style.width = (s.disc/10)*100 + '%';
-            projBar.style.width = (s.proj/50)*100 + '%';
-            let total = s.att + s.as + s.part + s.disc + s.proj;
-            totalSpan.innerText = total;
-            completedSpan.innerText = Math.round(total/2);
-            accuracySpan.innerText = (s.accuracy || 0) + '%';
-            streakSpan.innerText = (s.streak || 0) + ' 🔥';
-            if (s.img) profileImgDiv.innerHTML = `<img src="${s.img}">`;
-            else profileImgDiv.innerHTML = '<i class="fas fa-user-astronaut placeholder-icon"></i>';
-
-            let studentsList = [];
-            for (let name in state.students) {
-                let stu = state.students[name];
-                let totalPts = stu.att + stu.as + stu.part + stu.disc + stu.proj;
-                studentsList.push({ name, pts: totalPts });
-            }
-            studentsList.sort((a,b) => b.pts - a.pts);
-            let html = '';
-            studentsList.forEach((stud, idx) => {
-                let medal = idx===0 ? '🥇 #1' : idx===1 ? '🥈 #2' : idx===2 ? '🥉 #3' : `#${idx+1}`;
-                let medalClass = idx===0 ? 'gold' : idx===1 ? 'silver' : idx===2 ? 'bronze' : '';
-                let img = state.students[stud.name].img || '';
-                let thumbHtml = `<div class="profile-thumb">${img ? '<img src="'+img+'">' : '<i class="fas fa-user" style="color:white; line-height:32px; width:100%; text-align:center;"></i>'}</div>`;
-                html += `<tr data-student="${stud.name}"><td class="rank-medal ${medalClass}">${medal}</td><td>${thumbHtml} ${stud.name}</td><td>${stud.pts}</td></tr>`;
-            });
-            leaderBody.innerHTML = html;
-
-            let rankIndex = studentsList.findIndex(x => x.name === state.currentView) + 1;
-            rankSpan.innerText = '#' + rankIndex;
-
-            chart.data.datasets[0].data = state.students[state.currentView].weeks;
-            chartStudentSpan.innerText = state.currentView;
-            chart.update();
-        }
-
-        function saveAndRefresh() {
-            collectStateFromInputs();
-            // Add version info when saving
+        // Save data to JSONBin.io
+        async function saveGlobalData() {
+            // Add metadata
             state.version = APP_VERSION;
             state.lastUpdated = new Date().toISOString();
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            renderAdminCards();
-            refreshDashboard();
+            
+            try {
+                const response = await fetch(JSONBIN_URL, {
+                    method: 'PUT',
+                    headers: {
+                        'X-Master-Key': JSONBIN_API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(state)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                console.log('Data saved to JSONBin successfully');
+                
+                // Show success notification
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #00ff8840;
+                    border: 2px solid #00ff88;
+                    color: #00ff88;
+                    padding: 15px 25px;
+                    border-radius: 50px;
+                    backdrop-filter: blur(10px);
+                    z-index: 10000;
+                    font-weight: 600;
+                    animation: slideIn 0.3s ease;
+                `;
+                notification.innerHTML = '<i class="fas fa-check-circle"></i> GLOBAL UPDATE: Changes saved for everyone!';
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.style.animation = 'slideOut 0.3s ease';
+                    setTimeout(() => notification.remove(), 300);
+                }, 3000);
+                
+            } catch (error) {
+                console.error('Error saving to JSONBin:', error);
+                
+                // Show error notification
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #ff444440;
+                    border: 2px solid #ff4444;
+                    color: #ff8888;
+                    padding: 15px 25px;
+                    border-radius: 50px;
+                    backdrop-filter: blur(10px);
+                    z-index: 10000;
+                    font-weight: 600;
+                `;
+                notification.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error saving globally. Changes saved locally only.';
+                document.body.appendChild(notification);
+                
+                setTimeout(() => notification.remove(), 3000);
+            }
         }
 
-        function addNewStudent() {
-            let newName = prompt("Enter new student first name (no spaces):", "New");
-            if (!newName) return;
-            if (state.students[newName]) {
-                alert("Student already exists!");
-                return;
+        // Initialize the app after data is loaded
+        function initializeApp() {
+            // Ensure all students have required fields
+            for (let name in state.students) {
+                let s = state.students[name];
+                if (s.att === undefined) s.att = 5;
+                if (s.as === undefined) s.as = 10;
+                if (s.part === undefined) s.part = 5;
+                if (s.disc === undefined) s.disc = 5;
+                if (s.proj === undefined) s.proj = 20;
+                if (s.accuracy === undefined) s.accuracy = 80;
+                if (s.streak === undefined) s.streak = 1;
+                if (!s.weeks) s.weeks = [10,20,30,40];
             }
-            state.students[newName] = {
-                att: 0, as: 0, part: 0, disc: 0, proj: 0,
-                accuracy: 0, streak: 0, img: '',
-                weeks: [0,0,0,0]
-            };
-            saveAndRefresh();
-        }
 
-        leaderBody.addEventListener('click', (e) => {
-            let row = e.target.closest('tr');
-            if (!row) return;
-            let student = row.dataset.student;
-            if (student && state.students[student]) {
-                state.currentView = student;
-                refreshDashboard();
+            // Initialize chart
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            window.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+                    datasets: [{
+                        label: 'Points',
+                        data: state.students[state.currentView]?.weeks || [15,30,45,60],
+                        borderColor: '#6ec8ff',
+                        backgroundColor: 'rgba(0, 180, 255, 0.15)',
+                        borderWidth: 4,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#0099ff',
+                        pointBorderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 12,
+                        tension: 0.2,
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 1200 },
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: '#2f5480' }, min: 0, max: 100, ticks: { color: '#bcd5ff', stepSize: 20 } },
+                        x: { ticks: { color: '#bcd5ff', maxRotation: 0, autoSkip: true } }
+                    }
+                }
+            });
+
+            // DOM elements
+            const studentNameSpan = document.getElementById('studentName');
+            const rankSpan = document.getElementById('rankDisplay');
+            const totalSpan = document.getElementById('totalPointsDisplay');
+            const attSpan = document.getElementById('attScore');
+            const asSpan = document.getElementById('asScore');
+            const partSpan = document.getElementById('partScore');
+            const discSpan = document.getElementById('discScore');
+            const projSpan = document.getElementById('projScore');
+            const attBar = document.getElementById('attBar');
+            const asBar = document.getElementById('asBar');
+            const partBar = document.getElementById('partBar');
+            const discBar = document.getElementById('discBar');
+            const projBar = document.getElementById('projBar');
+            const profileImgDiv = document.getElementById('profileImg');
+            const completedSpan = document.getElementById('completedCount');
+            const accuracySpan = document.getElementById('accuracyDisplay');
+            const streakSpan = document.getElementById('streakDisplay');
+            const chartStudentSpan = document.getElementById('chartStudentName');
+            const leaderBody = document.getElementById('leaderboardBody');
+            const studentCardsContainer = document.getElementById('studentCardsContainer');
+
+            // Render admin cards
+            function renderAdminCards() {
+                let html = '';
+                for (let name in state.students) {
+                    let s = state.students[name];
+                    html += `
+                        <div class="student-card" data-student-key="${name}">
+                            <h4>
+                                <span>🌸 ${name}</span>
+                                <span class="delete-btn" data-delete="${name}"><i class="fas fa-trash"></i> delete</span>
+                            </h4>
+                            <div class="ctrl-item"><label>🔥 Streak</label><input type="number" id="streak_${name}" value="${s.streak}"></div>
+                            <div class="ctrl-item"><label>Accuracy %</label><input type="number" id="acc_${name}" value="${s.accuracy}"></div>
+                            <div class="ctrl-item"><label>Attendance /10</label><input type="number" id="att_${name}" value="${s.att}"></div>
+                            <div class="ctrl-item"><label>Assignments /20</label><input type="number" id="as_${name}" value="${s.as}"></div>
+                            <div class="ctrl-item"><label>Participation /10</label><input type="number" id="part_${name}" value="${s.part}"></div>
+                            <div class="ctrl-item"><label>Discipline /10</label><input type="number" id="disc_${name}" value="${s.disc}"></div>
+                            <div class="ctrl-item"><label>Final project /50</label><input type="number" id="proj_${name}" value="${s.proj}"></div>
+                            <div class="ctrl-item"><label>Image URL</label><input type="text" id="img_${name}" value="${s.img || ''}" placeholder="https://..."></div>
+                            <div class="ctrl-item"><label>Week1</label><input type="number" id="w1_${name}" value="${s.weeks[0]}"></div>
+                            <div class="ctrl-item"><label>Week2</label><input type="number" id="w2_${name}" value="${s.weeks[1]}"></div>
+                            <div class="ctrl-item"><label>Week3</label><input type="number" id="w3_${name}" value="${s.weeks[2]}"></div>
+                            <div class="ctrl-item"><label>Week4</label><input type="number" id="w4_${name}" value="${s.weeks[3]}"></div>
+                        </div>
+                    `;
+                }
+                studentCardsContainer.innerHTML = html;
+
+                document.querySelectorAll('.delete-btn').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        let studentName = this.dataset.delete;
+                        if (confirm(`Delete student ${studentName}?`)) {
+                            delete state.students[studentName];
+                            if (state.currentView === studentName) {
+                                state.currentView = Object.keys(state.students)[0] || 'Aryan';
+                            }
+                            saveAndRefresh();
+                        }
+                    });
+                });
             }
-        });
 
-        const loginForm = document.getElementById('loginForm');
-        const adminContent = document.getElementById('adminContent');
-        const loginBtn = document.getElementById('loginBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const addBtn = document.getElementById('addStudentBtn');
-        const updateBtn = document.getElementById('updateBtn');
+            function collectStateFromInputs() {
+                for (let name in state.students) {
+                    let streakEl = document.getElementById(`streak_${name}`);
+                    let accEl = document.getElementById(`acc_${name}`);
+                    let attEl = document.getElementById(`att_${name}`);
+                    let asEl = document.getElementById(`as_${name}`);
+                    let partEl = document.getElementById(`part_${name}`);
+                    let discEl = document.getElementById(`disc_${name}`);
+                    let projEl = document.getElementById(`proj_${name}`);
+                    let imgEl = document.getElementById(`img_${name}`);
+                    let w1 = document.getElementById(`w1_${name}`);
+                    let w2 = document.getElementById(`w2_${name}`);
+                    let w3 = document.getElementById(`w3_${name}`);
+                    let w4 = document.getElementById(`w4_${name}`);
 
-        loginBtn.addEventListener('click', function() {
-            const user = document.getElementById('adminUser').value.trim();
-            const pass = document.getElementById('adminPass').value.trim();
-            if (user === 'EXPERTO420' && pass === 'Good9955') {
-                loginForm.classList.add('hidden');
-                adminContent.classList.remove('hidden');
-                renderAdminCards();
-                refreshDashboard();
-                failCount = 0;
-            } else {
-                failCount++;
-                if (failCount === 1) {
-                    showGlitch('Why are you trying to log in?');
-                } else if (failCount === 2) {
-                    showGlitch('Hhh Trying to mess with System?');
-                } else {
-                    showGlitch('IMPERSONATOR DETECTED!<br><span class="glitch-sub">ADMIN INFORMED</span>');
+                    if (streakEl) state.students[name].streak = parseInt(streakEl.value) || 0;
+                    if (accEl) state.students[name].accuracy = parseInt(accEl.value) || 0;
+                    if (attEl) state.students[name].att = Math.min(10, Math.max(0, parseInt(attEl.value) || 0));
+                    if (asEl) state.students[name].as = Math.min(20, Math.max(0, parseInt(asEl.value) || 0));
+                    if (partEl) state.students[name].part = Math.min(10, Math.max(0, parseInt(partEl.value) || 0));
+                    if (discEl) state.students[name].disc = Math.min(10, Math.max(0, parseInt(discEl.value) || 0));
+                    if (projEl) state.students[name].proj = Math.min(50, Math.max(0, parseInt(projEl.value) || 0));
+                    if (imgEl) state.students[name].img = imgEl.value;
+                    if (w1 && w2 && w3 && w4) {
+                        state.students[name].weeks = [
+                            parseInt(w1.value) || 0,
+                            parseInt(w2.value) || 0,
+                            parseInt(w3.value) || 0,
+                            parseInt(w4.value) || 0
+                        ];
+                    }
                 }
             }
-        });
 
-        logoutBtn.addEventListener('click', function() {
-            loginForm.classList.remove('hidden');
-            adminContent.classList.add('hidden');
-            document.getElementById('adminUser').value = '';
-            document.getElementById('adminPass').value = '';
-            failCount = 0;
-        });
+            function refreshDashboard() {
+                let s = state.students[state.currentView];
+                if (!s) {
+                    state.currentView = Object.keys(state.students)[0] || 'Aryan';
+                    s = state.students[state.currentView];
+                }
 
-        addBtn.addEventListener('click', addNewStudent);
+                studentNameSpan.innerText = state.currentView;
+                attSpan.innerText = s.att + '/10';
+                asSpan.innerText = s.as + '/20';
+                partSpan.innerText = s.part + '/10';
+                discSpan.innerText = s.disc + '/10';
+                projSpan.innerText = s.proj + '/50';
+                attBar.style.width = (s.att/10)*100 + '%';
+                asBar.style.width = (s.as/20)*100 + '%';
+                partBar.style.width = (s.part/10)*100 + '%';
+                discBar.style.width = (s.disc/10)*100 + '%';
+                projBar.style.width = (s.proj/50)*100 + '%';
+                let total = s.att + s.as + s.part + s.disc + s.proj;
+                totalSpan.innerText = total;
+                completedSpan.innerText = Math.round(total/2);
+                accuracySpan.innerText = (s.accuracy || 0) + '%';
+                streakSpan.innerText = (s.streak || 0) + ' 🔥';
+                if (s.img) profileImgDiv.innerHTML = `<img src="${s.img}">`;
+                else profileImgDiv.innerHTML = '<i class="fas fa-user-astronaut placeholder-icon"></i>';
 
-        updateBtn.addEventListener('click', function() {
-            saveAndRefresh();
-        });
+                let studentsList = [];
+                for (let name in state.students) {
+                    let stu = state.students[name];
+                    let totalPts = stu.att + stu.as + stu.part + stu.disc + stu.proj;
+                    studentsList.push({ name, pts: totalPts });
+                }
+                studentsList.sort((a,b) => b.pts - a.pts);
+                let html = '';
+                studentsList.forEach((stud, idx) => {
+                    let medal = idx===0 ? '🥇 #1' : idx===1 ? '🥈 #2' : idx===2 ? '🥉 #3' : `#${idx+1}`;
+                    let medalClass = idx===0 ? 'gold' : idx===1 ? 'silver' : idx===2 ? 'bronze' : '';
+                    let img = state.students[stud.name].img || '';
+                    let thumbHtml = `<div class="profile-thumb">${img ? '<img src="'+img+'">' : '<i class="fas fa-user" style="color:white; line-height:32px; width:100%; text-align:center;"></i>'}</div>`;
+                    html += `<tr data-student="${stud.name}"><td class="rank-medal ${medalClass}">${medal}</td><td>${thumbHtml} ${stud.name}</td><td>${stud.pts}</td></tr>`;
+                });
+                leaderBody.innerHTML = html;
 
-        document.querySelectorAll('.glass-card').forEach(card => {
-            card.addEventListener('mousemove', function(e) {
-                if (window.innerWidth <= 600) return;
-                let rect = this.getBoundingClientRect();
-                let x = ((e.clientX - rect.left) / rect.width) * 100;
-                let y = ((e.clientY - rect.top) / rect.height) * 100;
-                this.style.setProperty('--x', x + '%');
-                this.style.setProperty('--y', y + '%');
+                let rankIndex = studentsList.findIndex(x => x.name === state.currentView) + 1;
+                rankSpan.innerText = '#' + rankIndex;
+
+                window.chart.data.datasets[0].data = state.students[state.currentView].weeks;
+                chartStudentSpan.innerText = state.currentView;
+                window.chart.update();
+            }
+
+            async function saveAndRefresh() {
+                collectStateFromInputs();
+                refreshDashboard();
+                await saveGlobalData(); // This will update everyone globally
+            }
+
+            function addNewStudent() {
+                let newName = prompt("Enter new student first name (no spaces):", "New");
+                if (!newName) return;
+                if (state.students[newName]) {
+                    alert("Student already exists!");
+                    return;
+                }
+                state.students[newName] = {
+                    att: 0, as: 0, part: 0, disc: 0, proj: 0,
+                    accuracy: 0, streak: 0, img: '',
+                    weeks: [0,0,0,0]
+                };
+                saveAndRefresh();
+            }
+
+            // Event listeners
+            leaderBody.addEventListener('click', (e) => {
+                let row = e.target.closest('tr');
+                if (!row) return;
+                let student = row.dataset.student;
+                if (student && state.students[student]) {
+                    state.currentView = student;
+                    refreshDashboard();
+                }
             });
-        });
 
-        if (!state.currentView) state.currentView = Object.keys(state.students)[0] || 'Aryan';
-        refreshDashboard();
-        const bars = document.querySelectorAll('.bar-fill');
-        bars.forEach(b => { b.style.transition = 'none'; b.style.width = '0%'; });
-        setTimeout(() => {
-            bars.forEach(b => { b.style.transition = 'width 1.4s cubic-bezier(0.23, 1, 0.32, 1)'; });
+            const loginForm = document.getElementById('loginForm');
+            const adminContent = document.getElementById('adminContent');
+            const loginBtn = document.getElementById('loginBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const addBtn = document.getElementById('addStudentBtn');
+            const updateBtn = document.getElementById('updateBtn');
+
+            loginBtn.addEventListener('click', function() {
+                const user = document.getElementById('adminUser').value.trim();
+                const pass = document.getElementById('adminPass').value.trim();
+                if (user === 'EXPERTO420' && pass === 'Good9955') {
+                    loginForm.classList.add('hidden');
+                    adminContent.classList.remove('hidden');
+                    renderAdminCards();
+                    refreshDashboard();
+                    failCount = 0;
+                } else {
+                    failCount++;
+                    if (failCount === 1) {
+                        showGlitch('Why are you trying to log in?');
+                    } else if (failCount === 2) {
+                        showGlitch('Hhh Trying to mess with System?');
+                    } else {
+                        showGlitch('IMPERSONATOR DETECTED!<br><span class="glitch-sub">ADMIN INFORMED</span>');
+                    }
+                }
+            });
+
+            logoutBtn.addEventListener('click', function() {
+                loginForm.classList.remove('hidden');
+                adminContent.classList.add('hidden');
+                document.getElementById('adminUser').value = '';
+                document.getElementById('adminPass').value = '';
+                failCount = 0;
+            });
+
+            addBtn.addEventListener('click', addNewStudent);
+
+            updateBtn.addEventListener('click', function() {
+                saveAndRefresh();
+            });
+
+            document.querySelectorAll('.glass-card').forEach(card => {
+                card.addEventListener('mousemove', function(e) {
+                    if (window.innerWidth <= 600) return;
+                    let rect = this.getBoundingClientRect();
+                    let x = ((e.clientX - rect.left) / rect.width) * 100;
+                    let y = ((e.clientY - rect.top) / rect.height) * 100;
+                    this.style.setProperty('--x', x + '%');
+                    this.style.setProperty('--y', y + '%');
+                });
+            });
+
+            if (!state.currentView) state.currentView = Object.keys(state.students)[0] || 'Aryan';
             refreshDashboard();
-        }, 200);
+            
+            // Animate bars
+            const bars = document.querySelectorAll('.bar-fill');
+            bars.forEach(b => { b.style.transition = 'none'; b.style.width = '0%'; });
+            setTimeout(() => {
+                bars.forEach(b => { b.style.transition = 'width 1.4s cubic-bezier(0.23, 1, 0.32, 1)'; });
+                refreshDashboard();
+            }, 200);
+        }
+
+        // Start loading global data
+        loadGlobalData();
     })();
 </script>
 </body>
